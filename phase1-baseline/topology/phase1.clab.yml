@@ -10,26 +10,25 @@ topology:
   nodes:
     spine1:
       kind: cisco_n9kv
+      startup-config: ../configs/startup/spine1-init.cfg
     spine2:
       kind: cisco_n9kv
+      startup-config: ../configs/startup/spine2-init.cfg
     leaf1:
       kind: cisco_n9kv
+      startup-config: ../configs/startup/leaf1-init.cfg
     leaf2:
       kind: cisco_n9kv
+      startup-config: ../configs/startup/leaf2-init.cfg
     host1:
       kind: linux
     host2:
       kind: linux
 
   links:
-    # Spine1 to Leaves
     - endpoints: ["spine1:eth1", "leaf1:eth1"]
     - endpoints: ["spine1:eth2", "leaf2:eth1"]
-
-    # Spine2 to Leaves
     - endpoints: ["spine2:eth1", "leaf1:eth2"]
     - endpoints: ["spine2:eth2", "leaf2:eth2"]
-
-    # Hosts to Leaves (eth9 = Eth1/9 on NX-OSv)
     - endpoints: ["leaf1:eth9", "host1:eth1"]
     - endpoints: ["leaf2:eth9", "host2:eth1"]
