@@ -1,0 +1,20 @@
+# Containerlab runtime
+clab-*/
+*.tar.gz
+
+# Logs and temp
+*.log
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

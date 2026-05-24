@@ -1,0 +1,7 @@
+{
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/srl-labs/containerlab/main/schemas/clab.schema.json": "*.clab.yml"
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true
+}
