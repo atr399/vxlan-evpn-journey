@@ -8,19 +8,19 @@ Reading order: skim section 1 first to set context, then jump to any section as 
 
 ## Table of contents
 
-1. Mental model
-2. Topology and IP plan
-3. Configuration: SPINES (segment by segment)
-4. Configuration: LEAVES (segment by segment)
-5. Configuration: HOSTS
-6. Verification: underlay (OSPF)
-7. Verification: overlay (BGP-EVPN)
-8. Verification: VXLAN data plane
-9. Verification: tenant L2 and L3
-10. Verification: end-to-end traffic
-11. Packet flow walkthrough
-12. Common mistakes and their symptoms
-13. Feature dependency cheat sheet
+1. [Mental model](#1-mental-model)
+2. [Topology and IP plan](#2-topology-and-ip-plan)
+3. [Configuration: SPINES (segment by segment)](#3-configuration-spines-segment-by-segment)
+4. [Configuration: LEAVES (segment by segment)](#4-configuration-leaves-segment-by-segment)
+5. [Configuration: HOSTS](#5-configuration-hosts)
+6. [Verification: underlay (OSPF)](#6-verification-underlay-ospf)
+7. [Verification: overlay (BGP-EVPN)](#7-verification-overlay-bgp-evpn)
+8. [Verification: VXLAN data plane](#8-verification-vxlan-data-plane)
+9. [Verification: tenant L2 and L3](#9-verification-tenant-l2-and-l3)
+10. [Verification: end-to-end traffic](#10-verification-end-to-end-traffic)
+11. [Packet flow walkthrough](#11-packet-flow-walkthrough)
+12. [Common mistakes and their symptoms](#12-common-mistakes-and-their-symptoms)
+13. [Feature dependency cheat sheet](#13-feature-dependency-cheat-sheet)
 
 ---
 
@@ -29,11 +29,13 @@ Reading order: skim section 1 first to set context, then jump to any section as 
 VXLAN-EVPN is **two logical networks running on the same physical hardware**:
 
 ### Underlay
+
 - Plain IP network. OSPF area 0 with /30 point-to-point links.
 - Carries IP packets only. Knows nothing about tenants, MACs, VLANs, VXLAN.
 - Job: get an IP packet from leaf1's loopback to leaf2's loopback.
 
 ### Overlay
+
 - Tenant Ethernet frames encapsulated in VXLAN (UDP port 4789).
 - Tunnels run leaf-to-leaf, never touch spines as endpoints.
 - Control plane: BGP with the L2VPN EVPN address family.
@@ -60,26 +62,30 @@ For labs and small/medium fabrics, ingress replication is the standard choice.
 ---
 
 ## 2. Topology and IP plan
-              spine1                       spine2
-          lo0: 10.0.0.1/32             lo0: 10.0.0.2/32
-          AS 65000 (RR)                AS 65000 (RR)
-            /      \                     /      \
-  10.1.1.0/30   10.1.2.0/30   10.1.3.0/30   10.1.4.0/30
-          /          \                /          \
-     leaf1                                    leaf2
-   lo0: 10.0.0.11/32                        lo0: 10.0.0.12/32
-   lo1: 10.0.1.11/32 (VTEP)                 lo1: 10.0.1.12/32 (VTEP)
-         |                                       |
-      Eth1/9                                  Eth1/9
-         |                                       |
-      host1                                   host2
-   10.10.10.10/24                          10.10.10.20/24
+
+```
+                  spine1                       spine2
+              lo0: 10.0.0.1/32             lo0: 10.0.0.2/32
+              AS 65000 (RR)                AS 65000 (RR)
+                /      \                     /      \
+      10.1.1.0/30   10.1.2.0/30   10.1.3.0/30   10.1.4.0/30
+              /          \                /          \
+         leaf1                                    leaf2
+       lo0: 10.0.0.11/32                        lo0: 10.0.0.12/32
+       lo1: 10.0.1.11/32 (VTEP)                 lo1: 10.0.1.12/32 (VTEP)
+             |                                       |
+          Eth1/9                                  Eth1/9
+             |                                       |
+          host1                                   host2
+       10.10.10.10/24                          10.10.10.20/24
+
 VLAN 10 (host VLAN)  -> L2VNI 10010
 VRF tenant1          -> L3VNI 50001
 VLAN 100             -> L3VNI transit VLAN (carries the L3VNI)
 Anycast gateway: 10.10.10.1 / 0000.2222.3333
 OSPF area 0.0.0.0 across the whole underlay
 BGP AS 65000 (iBGP), spines as RRs
+```
 
 ### Loopback purposes
 
@@ -95,9 +101,12 @@ Two separate loopbacks because in vPC scenarios (Phase 3), lo1 takes a shared se
 ## 3. Configuration: SPINES (segment by segment)
 
 ### Segment 3.1 — Global features
+
+```
 feature ospf
 feature bgp
 nv overlay evpn
+```
 
 | Command | Why |
 |---|---|
@@ -108,9 +117,12 @@ nv overlay evpn
 Note: spines do NOT need `feature nv overlay`, `feature interface-vlan`, or `feature vn-segment-vlan-based` because they don't encapsulate VXLAN or hold tenant config.
 
 ### Segment 3.2 — Loopback0 (router-id)
+
+```
 interface loopback0
-ip address 10.0.0.1/32
-ip router ospf 1 area 0.0.0.0
+  ip address 10.0.0.1/32
+  ip router ospf 1 area 0.0.0.0
+```
 
 | Command | Why |
 |---|---|
@@ -118,12 +130,15 @@ ip router ospf 1 area 0.0.0.0
 | `ip router ospf 1 area 0.0.0.0` | Advertise this loopback into OSPF so every leaf has a route to it. Needed for BGP sessions sourced from loopback0. |
 
 ### Segment 3.3 — P2P links to leaves
+
+```
 interface Ethernet1/1
-description to-leaf1
-no switchport
-ip address 10.1.1.1/30
-ip router ospf 1 area 0.0.0.0
-no shutdown
+  description to-leaf1
+  no switchport
+  ip address 10.1.1.1/30
+  ip router ospf 1 area 0.0.0.0
+  no shutdown
+```
 
 | Command | Why |
 |---|---|
@@ -133,8 +148,11 @@ no shutdown
 | `no shutdown` | NX-OS interfaces default admin-down. Always required. |
 
 ### Segment 3.4 — OSPF process
+
+```
 router ospf 1
-router-id 10.0.0.1
+  router-id 10.0.0.1
+```
 
 | Command | Why |
 |---|---|
@@ -142,9 +160,12 @@ router-id 10.0.0.1
 | `router-id 10.0.0.1` | Explicit router-id. Should match loopback0 for clarity. If not set, OSPF picks the highest loopback IP, which is usually fine but explicit is safer. |
 
 ### Segment 3.5 — BGP basics and EVPN AF
+
+```
 router bgp 65000
-router-id 10.0.0.1
-address-family l2vpn evpn
+  router-id 10.0.0.1
+  address-family l2vpn evpn
+```
 
 | Command | Why |
 |---|---|
@@ -153,13 +174,16 @@ address-family l2vpn evpn
 | `address-family l2vpn evpn` | Globally enable the EVPN AF. Required before any neighbor-level EVPN config will work. Depends on `nv overlay evpn`. |
 
 ### Segment 3.6 — Peer template (RR)
+
+```
 template peer LEAF-RR-CLIENT
-remote-as 65000
-update-source loopback0
-address-family l2vpn evpn
-send-community
-send-community extended
-route-reflector-client
+  remote-as 65000
+  update-source loopback0
+  address-family l2vpn evpn
+    send-community
+    send-community extended
+    route-reflector-client
+```
 
 | Command | Why |
 |---|---|
@@ -171,8 +195,11 @@ route-reflector-client
 | `route-reflector-client` | Tell BGP "this neighbor is my RR client" — I will re-advertise its routes to other iBGP peers. This is what makes the spine a route reflector. |
 
 ### Segment 3.7 — Apply template to leaves
+
+```
 neighbor 10.0.0.11 inherit peer LEAF-RR-CLIENT
 neighbor 10.0.0.12 inherit peer LEAF-RR-CLIENT
+```
 
 Inherits all template settings. Cleaner than typing the same block twice.
 
@@ -181,12 +208,15 @@ Inherits all template settings. Cleaner than typing the same block twice.
 ## 4. Configuration: LEAVES (segment by segment)
 
 ### Segment 4.1 — Global features
+
+```
 feature ospf
 feature bgp
 feature interface-vlan
 feature vn-segment-vlan-based
 feature nv overlay
 nv overlay evpn
+```
 
 | Command | Why |
 |---|---|
@@ -199,11 +229,20 @@ nv overlay evpn
 
 Same as spines. Identity loopback for BGP and OSPF.
 
+```
+interface loopback0
+  ip address 10.0.0.11/32
+  ip router ospf 1 area 0.0.0.0
+```
+
 ### Segment 4.3 — Loopback1 (VTEP source)
+
+```
 interface loopback1
-description VTEP-source
-ip address 10.0.1.11/32
-ip router ospf 1 area 0.0.0.0
+  description VTEP-source
+  ip address 10.0.1.11/32
+  ip router ospf 1 area 0.0.0.0
+```
 
 | Command | Why |
 |---|---|
@@ -215,42 +254,64 @@ ip router ospf 1 area 0.0.0.0
 
 Same pattern as spines. `no switchport`, p2p /30, OSPF.
 
+```
+interface Ethernet1/1
+  description to-spine1
+  no switchport
+  ip address 10.1.1.2/30
+  ip router ospf 1 area 0.0.0.0
+  no shutdown
+```
+
 ### Segment 4.5 — OSPF process
 
 Same as spines but with the leaf's router-id.
 
+```
+router ospf 1
+  router-id 10.0.0.11
+```
+
 ### Segment 4.6 — BGP and EVPN AF
+
+```
 router bgp 65000
-router-id 10.0.0.11
-address-family l2vpn evpn
-template peer SPINE-RR
-remote-as 65000
-update-source loopback0
-address-family l2vpn evpn
-send-community
-send-community extended
-neighbor 10.0.0.1 inherit peer SPINE-RR
-neighbor 10.0.0.2 inherit peer SPINE-RR
+  router-id 10.0.0.11
+  address-family l2vpn evpn
+  template peer SPINE-RR
+    remote-as 65000
+    update-source loopback0
+    address-family l2vpn evpn
+      send-community
+      send-community extended
+  neighbor 10.0.0.1 inherit peer SPINE-RR
+  neighbor 10.0.0.2 inherit peer SPINE-RR
+```
 
 Note: leaves do NOT have `route-reflector-client`. They are RR clients OF the spines, not RRs themselves.
 
 ### Segment 4.7 — VRF tenant1 and L3VNI
+
+```
 vlan 100
-name L3VNI-tenant1
-vn-segment 50001
+  name L3VNI-tenant1
+  vn-segment 50001
+
 vrf context tenant1
-vni 50001
-rd auto
-address-family ipv4 unicast
-route-target both auto
-route-target both auto evpn
+  vni 50001
+  rd auto
+  address-family ipv4 unicast
+    route-target both auto
+    route-target both auto evpn
+
 interface Vlan100
-description L3VNI-tenant1
-no shutdown
-mtu 9216
-vrf member tenant1
-ip forward
-no ip redirects
+  description L3VNI-tenant1
+  no shutdown
+  mtu 9216
+  vrf member tenant1
+  ip forward
+  no ip redirects
+```
 
 | Command | Why |
 |---|---|
@@ -263,14 +324,18 @@ no ip redirects
 | `interface Vlan100` + `vrf member tenant1` + `ip forward` | The L3VNI SVI. No IP address — it's a forwarding-only conduit between the VRF and the NVE interface. `mtu 9216` for jumbo to accommodate VXLAN overhead. |
 
 ### Segment 4.8 — L2VNI (host VLAN bridging)
+
+```
 vlan 10
-name HOST_VLAN
-vn-segment 10010
+  name HOST_VLAN
+  vn-segment 10010
+
 evpn
-vni 10010 l2
-rd auto
-route-target import auto
-route-target export auto
+  vni 10010 l2
+    rd auto
+    route-target import auto
+    route-target export auto
+```
 
 | Command | Why |
 |---|---|
@@ -279,14 +344,17 @@ route-target export auto
 | `rd auto`, `route-target import/export auto` | Same idea as VRF — uniquely identify and propagate MAC-VRF routes. |
 
 ### Segment 4.9 — NVE interface
+
+```
 interface nve1
-description VXLAN-VTEP
-no shutdown
-host-reachability protocol bgp
-source-interface loopback1
-member vni 10010
-ingress-replication protocol bgp
-member vni 50001 associate-vrf
+  description VXLAN-VTEP
+  no shutdown
+  host-reachability protocol bgp
+  source-interface loopback1
+  member vni 10010
+    ingress-replication protocol bgp
+  member vni 50001 associate-vrf
+```
 
 | Command | Why |
 |---|---|
@@ -298,15 +366,19 @@ member vni 50001 associate-vrf
 | `member vni 50001 associate-vrf` | Attach the L3VNI and associate it with the VRF. Routed traffic between subnets in tenant1 uses this VNI. |
 
 ### Segment 4.10 — Anycast gateway
+
+```
 fabric forwarding anycast-gateway-mac 0000.2222.3333
+
 interface Vlan10
-description anycast-gw-VLAN10
-no shutdown
-mtu 9216
-vrf member tenant1
-no ip redirects
-ip address 10.10.10.1/24
-fabric forwarding mode anycast-gateway
+  description anycast-gw-VLAN10
+  no shutdown
+  mtu 9216
+  vrf member tenant1
+  no ip redirects
+  ip address 10.10.10.1/24
+  fabric forwarding mode anycast-gateway
+```
 
 | Command | Why |
 |---|---|
@@ -318,12 +390,15 @@ fabric forwarding mode anycast-gateway
 | `fabric forwarding mode anycast-gateway` | Activate anycast-gateway behavior on this SVI. Without this, NX-OS would treat it as a normal SVI and you'd have IP/MAC duplication conflicts. |
 
 ### Segment 4.11 — Host-facing port
+
+```
 interface Ethernet1/9
-description to-host
-switchport
-switchport mode access
-switchport access vlan 10
-no shutdown
+  description to-host
+  switchport
+  switchport mode access
+  switchport access vlan 10
+  no shutdown
+```
 
 | Command | Why |
 |---|---|
@@ -336,9 +411,12 @@ no shutdown
 ## 5. Configuration: HOSTS
 
 Inside each host container:
+
+```bash
 ip addr add 10.10.10.10/24 dev eth1
 ip link set eth1 up
 ip route add default via 10.10.10.1
+```
 
 Hosts only need IP + default gateway. Anycast gateway IP `10.10.10.1` lives on whichever leaf they're connected to.
 
@@ -347,48 +425,61 @@ Hosts only need IP + default gateway. Anycast gateway IP `10.10.10.1` lives on w
 ## 6. Verification: underlay (OSPF)
 
 ### show ip ospf neighbors
+
+```
 leaf1# show ip ospf neighbors
 Neighbor ID     Pri State            Up Time  Address         Interface
 10.0.0.1          1 FULL/DR          00:15:32 10.1.1.1        Eth1/1
 10.0.0.2          1 FULL/DR          00:15:28 10.1.3.1        Eth1/2
+```
 
 **What to look for:**
+
 - `State: FULL` — OSPF adjacency is fully established.
 - Should see one neighbor per underlay link (each leaf sees both spines).
 - `Up Time` increasing on subsequent checks = stable.
 
 **Bad output and what it means:**
+
 - `INIT` or `EXSTART` stuck — interface up but OSPF not converging. Check `ip router ospf 1 area 0.0.0.0` is on the interface and OSPF is running.
 - `2WAY` — neighborship formed but not exchanging routes. Usually a configuration mismatch (area number, MTU).
 - Missing neighbor entirely — physical link down, OSPF not enabled on interface, or IP not configured.
 
 ### show ip route ospf-1
+
+```
 leaf1# show ip route ospf-1
 10.0.0.1/32, ubest/mbest: 2/0
-*via 10.1.1.1, Eth1/1, [110/41], 00:14:55, ospf-1, intra
-*via 10.1.3.1, Eth1/2, [110/41], 00:14:55, ospf-1, intra
+    *via 10.1.1.1, Eth1/1, [110/41], 00:14:55, ospf-1, intra
+    *via 10.1.3.1, Eth1/2, [110/41], 00:14:55, ospf-1, intra
 10.0.0.2/32, ubest/mbest: 1/0
-*via 10.1.3.1, Eth1/2, [110/41], 00:14:55, ospf-1, intra
+    *via 10.1.3.1, Eth1/2, [110/41], 00:14:55, ospf-1, intra
 10.0.0.12/32, ubest/mbest: 2/0
-*via 10.1.1.1, Eth1/1, [110/81], 00:14:55, ospf-1, intra
-*via 10.1.3.1, Eth1/2, [110/81], 00:14:55, ospf-1, intra
+    *via 10.1.1.1, Eth1/1, [110/81], 00:14:55, ospf-1, intra
+    *via 10.1.3.1, Eth1/2, [110/81], 00:14:55, ospf-1, intra
 10.0.1.12/32, ubest/mbest: 2/0
-*via 10.1.1.1, Eth1/1, [110/81], 00:14:55, ospf-1, intra
-*via 10.1.3.1, Eth1/2, [110/81], 00:14:55, ospf-1, intra
+    *via 10.1.1.1, Eth1/1, [110/81], 00:14:55, ospf-1, intra
+    *via 10.1.3.1, Eth1/2, [110/81], 00:14:55, ospf-1, intra
+```
 
 **What to look for:**
+
 - Routes to all loopbacks of other devices (lo0 of spines and other leaves, lo1 of other leaves).
 - **`ubest 2/0` = ECMP working** — there are 2 paths (via both spines) and underlay traffic is load-balanced. This is the whole point of spine-leaf.
 - Cost `41` = directly connected loopback path. Cost `81` = via remote leaf (transits a spine).
 
 **Bad output:**
+
 - Missing routes to remote leaf loopbacks = remote leaf's OSPF is broken or loopback isn't advertised. Underlay is broken; VXLAN can't work.
 - Only 1 path when there should be 2 = one spine link is down or OSPF isn't running on it. Fabric works but no redundancy.
 
 ### Underlay ping test
+
+```
 leaf1# ping 10.0.1.12 source 10.0.1.11
 PING 10.0.1.12 (10.0.1.12): 56 data bytes
 64 bytes from 10.0.1.12: icmp_seq=0 ttl=253 time=2.345 ms
+```
 
 **Why this specific ping:** between VTEP loopbacks. If this works, the VXLAN tunnel has a working IP path. If it fails, no point looking at BGP or NVE — fix the underlay first.
 
@@ -397,31 +488,41 @@ PING 10.0.1.12 (10.0.1.12): 56 data bytes
 ## 7. Verification: overlay (BGP-EVPN)
 
 ### show bgp l2vpn evpn summary
+
+```
 leaf1# show bgp l2vpn evpn summary
 BGP router identifier 10.0.0.11, local AS number 65000
 BGP table version is 15, L2VPN EVPN config peers 2, capable peers 2
 7 network entries and 9 paths using 2548 bytes of memory
+
 Neighbor   V   AS    MsgRcvd  MsgSent  TblVer  InQ  OutQ  Up/Down  State/PfxRcd
 10.0.0.1   4   65000     8        11      15    0     0  00:01:04 2
 10.0.0.2   4   65000     8        11      15    0     0  00:00:52 2
+```
 
 **What to look for:**
+
 - `State/PfxRcd: 2` — session is **Established** (not "Idle" or "Active") and 2 EVPN routes have been received.
 - `Up/Down` time = how long session has been up (or down). Stable session = increasing uptime.
 - One neighbor entry per spine (both spines, since leaves peer with both).
 
 **Bad output and what it means:**
+
 - `State: Idle` — BGP can't establish. Usually `update-source loopback0` mismatch or BGP TCP port 179 blocked. Verify underlay loopback reachability.
 - `State: Active` — BGP is trying to connect but failing. Same root causes as Idle.
 - `State: OpenSent`/`OpenConfirm` stuck — handshake failing. AS number mismatch, password mismatch, or `nv overlay evpn` not configured.
 - `State/PfxRcd: 0` — session up but no routes received. Often means `send-community extended` is missing somewhere, so route-targets aren't transmitted and routes aren't accepted.
 
 ### Per-route-type counters (bottom of summary output)
+
+```
 Neighbor   T   AS    Type-1  Type-2  Type-3  Type-4  Type-5  Type-6  Type-7  Type-8  Type-12
 10.0.0.1   I   65000  0       1       1       0       0       0       0       0       0
 10.0.0.2   I   65000  0       1       1       0       0       0       0       0       0
+```
 
 **What each type means in EVPN:**
+
 - **Type-1** Ethernet Auto-Discovery — used in multi-homing scenarios (vPC, EVPN-MH). Empty in Phase 1.
 - **Type-2** MAC / MAC+IP — the workhorse. Every host MAC and host MAC+IP advertised.
 - **Type-3** Inclusive Multicast — "I'm a VTEP for VNI X, send BUM to me." Builds ingress-replication lists.
@@ -436,11 +537,15 @@ Neighbor   T   AS    Type-1  Type-2  Type-3  Type-4  Type-5  Type-6  Type-7  Typ
 ### show bgp l2vpn evpn
 
 The full EVPN BGP table. Long output; key fields:
+
+```
 Route Distinguisher: 10.0.0.11:32777    (L2VNI 10010)
 *>l[2]:[0]:[0]:[48]:[aac1.ab90.48e2]:[32]:[10.10.10.10]/272
-10.0.1.11    100   32768 i
+    10.0.1.11    100   32768 i
+```
 
-**Decoding the route key `[2]:[0]:[0]:[48]:[aac1.ab90.48e2]:[32]:[10.10.10.10]/272`:**
+**Decoding the route key** `[2]:[0]:[0]:[48]:[aac1.ab90.48e2]:[32]:[10.10.10.10]/272`:
+
 - `[2]` = Route type 2 (MAC/MAC+IP)
 - `[0]:[0]` = Ethernet Segment Identifier and Ethernet Tag (both 0 for single-homed simple deployments)
 - `[48]` = MAC length in bits
@@ -450,25 +555,30 @@ Route Distinguisher: 10.0.0.11:32777    (L2VNI 10010)
 - `/272` = total NLRI length in bits
 
 **Flag column on the left:**
+
 - `*` = valid
 - `>` = best path
 - `l` = locally originated
 - `i` = received from iBGP peer
 
 **Two routes per host:**
+
 1. `[2]:[0]:[0]:[48]:[MAC]:[0]:[0.0.0.0]/216` — MAC-only route, used for L2 forwarding within the L2VNI.
 2. `[2]:[0]:[0]:[48]:[MAC]:[32]:[IP]/272` — MAC+IP route, used for L3 forwarding (symmetric IRB) and ARP suppression.
 
 ### show bgp l2vpn evpn route-type 2 (detailed)
+
+```
 BGP routing table entry for [2]:[0]:[0]:[48]:[aac1.ab90.48e2]:[32]:[10.10.10.10]/272
-Path type: internal, path is valid, is best path
-Imported to 3 destination(s)
-Imported paths list: tenant1 L3-50001 L2-10010
-10.0.1.11 (metric 81) from 10.0.0.1 (10.0.0.1)
-Origin IGP, MED not set, localpref 100, weight 0
-Received label 10010 50001
-Extcommunity: RT:65000:10010 RT:65000:50001 ENCAP:8 Router MAC:0c71.fa00.1b08
-Originator: 10.0.0.11 Cluster list: 10.0.0.1
+  Path type: internal, path is valid, is best path
+  Imported to 3 destination(s)
+  Imported paths list: tenant1 L3-50001 L2-10010
+    10.0.1.11 (metric 81) from 10.0.0.1 (10.0.0.1)
+      Origin IGP, MED not set, localpref 100, weight 0
+      Received label 10010 50001
+      Extcommunity: RT:65000:10010 RT:65000:50001 ENCAP:8 Router MAC:0c71.fa00.1b08
+      Originator: 10.0.0.11 Cluster list: 10.0.0.1
+```
 
 **Critical fields:**
 
@@ -487,9 +597,12 @@ Originator: 10.0.0.11 Cluster list: 10.0.0.1
 **If `Router MAC` is missing** = symmetric IRB will fail. Usually means L3VNI isn't properly associated with the VRF.
 
 ### show bgp l2vpn evpn route-type 3
+
+```
 BGP routing table entry for [3]:[0]:[32]:[10.0.1.12]/88
-10.0.1.12 (metric 81) from 10.0.0.1 (10.0.0.1)
-Extcommunity: RT:65000:10010 ENCAP:8 PMSI: Flags:[0x0], Tunnel-Type:6, Label:10010
+    10.0.1.12 (metric 81) from 10.0.0.1 (10.0.0.1)
+      Extcommunity: RT:65000:10010 ENCAP:8 PMSI: Flags:[0x0], Tunnel-Type:6, Label:10010
+```
 
 **What this tells you:** there's a remote VTEP at 10.0.1.12 that wants BUM for L2VNI 10010. Local leaf adds 10.0.1.12 to its ingress-replication list for VNI 10010.
 
@@ -500,16 +613,20 @@ Should see one Type-3 per remote VTEP per L2VNI.
 ## 8. Verification: VXLAN data plane
 
 ### show nve interface nve1 detail
+
+```
 Interface: nve1, State: Up, encapsulation: VXLAN
-VPC Capability: VPC-VIP-Only [not-notified]
-Local Router MAC: 0c71.fa00.1b08
-Host Learning Mode: Control-Plane
-Source-Interface: loopback1 (primary: 10.0.1.11, secondary: 0.0.0.0)
-Source Interface State: Up
-Fabric convergence time: 135 seconds
-Fabric convergence time left: 0 seconds
+ VPC Capability: VPC-VIP-Only [not-notified]
+ Local Router MAC: 0c71.fa00.1b08
+ Host Learning Mode: Control-Plane
+ Source-Interface: loopback1 (primary: 10.0.1.11, secondary: 0.0.0.0)
+ Source Interface State: Up
+ Fabric convergence time: 135 seconds
+ Fabric convergence time left: 0 seconds
+```
 
 **Critical fields:**
+
 - `State: Up` — NVE interface is operational.
 - `Host Learning Mode: Control-Plane` — EVPN, not flood-and-learn. **If this says "Data-Plane", `host-reachability protocol bgp` is missing.**
 - `Source-Interface: loopback1 (primary: 10.0.1.11, secondary: 0.0.0.0)` — VTEP source IP. The `secondary` will hold the shared vPC-VTEP IP later in Phase 3.
@@ -518,29 +635,39 @@ Fabric convergence time left: 0 seconds
 - `Local Router MAC` — the MAC advertised in Type-2 routes as the Router MAC for L3-routed traffic.
 
 ### show nve peers
+
+```
 Interface  Peer-IP    State  LearnType  Uptime    Router-Mac
 nve1       10.0.1.12  Up     CP         00:01:20  n/a
+```
 
 **Critical fields:**
+
 - `State: Up` — VXLAN tunnel to this peer is operational.
 - `LearnType: CP` — Control-Plane (BGP-EVPN). Confirms we're not flood-and-learn.
 - One row per remote VTEP. Phase 1 has only one remote (the other leaf).
 
 **Bad output:**
+
 - Missing peer entirely = remote leaf hasn't advertised Type-3 yet, or Type-3 isn't being received. Check BGP-EVPN session and Type-3 routes.
 - `State: Down` = underlay path to peer IP is broken. Check `show ip route <peer-IP>`.
 
 ### show nve vni
+
+```
 Interface  VNI    Multicast-group   State  Mode  Type             Flags
 nve1       10010  UnicastBGP        Up     CP    L2 [10]
 nve1       50001  n/a               Up     CP    L3 [tenant1]
+```
 
 **Critical fields:**
+
 - `VNI 10010, Mode CP, Type L2 [10]` = L2VNI 10010 is bound to VLAN 10, control-plane learning.
 - `VNI 50001, Mode CP, Type L3 [tenant1]` = L3VNI 50001 is bound to VRF tenant1.
 - `Multicast-group: UnicastBGP` for L2VNI = ingress replication driven by BGP Type-3 routes.
 
 **Bad output:**
+
 - VNI in `Down` state = VLAN or VRF binding broken. Check `vn-segment` under VLAN and `vni` under VRF.
 - L3VNI missing = `member vni X associate-vrf` not configured on NVE.
 
@@ -549,11 +676,15 @@ nve1       50001  n/a               Up     CP    L3 [tenant1]
 ## 9. Verification: tenant L2 and L3
 
 ### show l2route mac all
+
+```
 Topology  Mac Address      Prod   Flags  Seq No  Next-Hops
 10        aac1.ab15.ee88   BGP    Rcv    0       10.0.1.12 (Label: 10010)
 10        aac1.ab90.48e2   Local  L,     0       Eth1/9
+```
 
 **Critical fields:**
+
 - `Topology 10` = VLAN 10.
 - `Prod: Local` = MAC learned locally on a switchport (host1 on leaf1).
 - `Prod: BGP` = MAC learned via BGP-EVPN from a remote VTEP.
@@ -563,13 +694,15 @@ Topology  Mac Address      Prod   Flags  Seq No  Next-Hops
 **This is the EVPN MAC table.** Every remote MAC should appear here with `Prod BGP`. If a remote MAC is missing, EVPN MAC learning failed somewhere.
 
 ### show mac address-table dynamic vlan 10
+
+```
 VLAN  MAC Address      Type     Ports
 C 10  aac1.ab15.ee88   dynamic  nve1(10.0.1.12)
-
-10  aac1.ab90.48e2   dynamic  Eth1/9
-
+*  10  aac1.ab90.48e2   dynamic  Eth1/9
+```
 
 **Critical fields:**
+
 - `nve1(10.0.1.12)` for the port = remote MAC, reached via NVE tunnel to that VTEP.
 - `Eth1/9` for the port = locally-attached MAC on the host port.
 - `C` flag (left column) = Control-Plane MAC (from EVPN).
@@ -577,36 +710,48 @@ C 10  aac1.ab15.ee88   dynamic  nve1(10.0.1.12)
 This is the data-plane forwarding table that hardware/dataplane actually consults. EVPN populates it from the routes in `show l2route mac all`.
 
 ### show ip arp vrf tenant1
+
+```
 IP ARP Table for context tenant1
 Total number of entries: 1
 Address       Age       MAC Address     Interface
 10.10.10.10   00:04:05  aac1.ab90.48e2  Vlan10
+```
 
 **Critical observation:** this is leaf1's ARP table. Only host1 (locally attached) is here. Host2 is NOT in this ARP table — it's in BGP-EVPN as a Type-2 route instead.
 
 **This is how EVPN replaces fabric-wide ARP flooding:**
+
 - Leaf1 ARPs for its local host → learns MAC → advertises Type-2 with MAC+IP → all leaves learn it via BGP.
 - Leaf2 doesn't need to ARP for host1; it already has the MAC+IP from BGP.
 - Result: ARP traffic stays local to each leaf, never floods the fabric.
 
 ### show ip route vrf tenant1
+
+```
 10.10.10.0/24, ubest/mbest: 1/0, attached
-*via 10.10.10.1, Vlan10, [0/0], direct
+    *via 10.10.10.1, Vlan10, [0/0], direct
 10.10.10.1/32, ubest/mbest: 1/0, attached
-*via 10.10.10.1, Vlan10, [0/0], local
+    *via 10.10.10.1, Vlan10, [0/0], local
 10.10.10.10/32, ubest/mbest: 1/0, attached
-*via 10.10.10.10, Vlan10, [190/0], hmm
+    *via 10.10.10.10, Vlan10, [190/0], hmm
+```
 
 **Critical fields:**
+
 - `10.10.10.0/24, direct` = the connected subnet.
 - `10.10.10.1/32, local` = the anycast gateway IP (same on all leaves).
 - `10.10.10.10/32, hmm` = **Host Mobility Manager** route for a locally-attached host. NX-OS auto-installs /32 routes for locally-learned hosts. Helps with fast convergence when a host moves between leaves.
 
 On leaf2 you'd see host2 as the `hmm` /32 and host1 as a BGP route:
+
+```
 10.10.10.10/32, ubest/mbest: 1/0
-*via 10.0.1.11%default, [200/0], bgp-65000, internal, tag 65000, segid: 50001 tunnelid: 0xa00010b encap: VXLAN
+    *via 10.0.1.11%default, [200/0], bgp-65000, internal, tag 65000, segid: 50001 tunnelid: 0xa00010b encap: VXLAN
+```
 
 **Decoding the BGP-VXLAN route:**
+
 - `via 10.0.1.11%default` = next-hop is remote VTEP loopback in the default VRF (underlay).
 - `[200/0]` = BGP administrative distance (200 for iBGP) / metric.
 - `segid: 50001` = L3VNI used to encap the routed packet.
@@ -618,17 +763,24 @@ This is the data-plane realization of the BGP-EVPN Type-2 route for symmetric IR
 ### show ip interface brief vrf all
 
 Quick sanity check. Should show:
+
+```
 VRF "default": loopbacks 0/1, all underlay interfaces (p2p IPs), mgmt0 in management VRF
 VRF "tenant1": Vlan10 (10.10.10.1), Vlan100 (forward-enabled)
+```
 
 If anything's in the wrong VRF, that's a config bug.
 
 ### show vxlan — broken on NX-OSv
+
+```
 Traceback (most recent call last):
-File "/isan/python3/scripts/vxlan_show.py", line 17, in <module>
+  File "/isan/python3/scripts/vxlan_show.py", line 17, in <module>
 ModuleNotFoundError: No module named 'tahoe'
+```
 
 Known NX-OSv bug. Has been broken across multiple versions. **Ignore it.** Use the other commands to get the same information:
+
 - VXLAN status → `show nve interface nve1 detail`
 - VNI table → `show nve vni`
 - Tunnel peers → `show nve peers`
@@ -638,14 +790,20 @@ Known NX-OSv bug. Has been broken across multiple versions. **Ignore it.** Use t
 ## 10. Verification: end-to-end traffic
 
 ### Ping host1 → host2
+
+```bash
 docker exec clab-phase1-baseline-host1 ping -c 4 10.10.10.20
+```
 
 Expected output:
+
+```
 PING 10.10.10.20 (10.10.10.20) 56(84) bytes of data.
 64 bytes from 10.10.10.20: icmp_seq=1 ttl=64 time=99.2 ms
 64 bytes from 10.10.10.20: icmp_seq=2 ttl=64 time=19.0 ms
 64 bytes from 10.10.10.20: icmp_seq=3 ttl=64 time=17.9 ms
 64 bytes from 10.10.10.20: icmp_seq=4 ttl=64 time=18.2 ms
+```
 
 **What's going on:**
 
@@ -681,6 +839,7 @@ Either way, host1 eventually has host2's MAC.
 ### Step 3 — Host1 sends ICMP
 
 Host1 builds the Ethernet frame:
+
 - src MAC: host1MAC
 - dst MAC: host2MAC
 - IP: src 10.10.10.10, dst 10.10.10.20
@@ -691,11 +850,15 @@ Sent on eth1 → leaf1 Eth1/9.
 ### Step 4 — Leaf1 lookup
 
 Leaf1 looks up host2MAC in its VLAN 10 MAC table. Finds:
+
+```
 host2MAC → nve1, VTEP 10.0.1.12, VNI 10010
+```
 
 ### Step 5 — Leaf1 VXLAN encapsulation
 
 Leaf1 wraps the original frame in:
+
 - Outer Ethernet (leaf1's MAC → next-hop MAC toward 10.0.1.12)
 - Outer IP: src 10.0.1.11, dst 10.0.1.12
 - UDP: dst port 4789 (VXLAN)
@@ -717,7 +880,10 @@ Now it has the original frame: dst MAC host2MAC, in VLAN 10.
 ### Step 8 — Leaf2 forward to host2
 
 Leaf2 looks up host2MAC in its VLAN 10 MAC table. Finds:
+
+```
 host2MAC → Eth1/9 (local)
+```
 
 Forwards on Eth1/9 to host2.
 
@@ -765,6 +931,7 @@ Steady-state 18ms is the actual latency of the fabric. 99ms first packet is one-
 **Symptom:** `hardware access-list tcam region arp-ether 256 double-wide` then `reload` leaves the leaf wedged. SSH dies, container appears "healthy" but unresponsive.
 
 **Fix:** don't do this on NX-OSv. Either:
+
 - Skip `suppress-arp` entirely (it's an optimization, not required).
 - Bake the TCAM line into containerlab `startup-config` so it's applied at first boot (no reload needed).
 
@@ -791,17 +958,23 @@ Steady-state 18ms is the actual latency of the fabric. 99ms first packet is one-
 ## 13. Feature dependency cheat sheet
 
 ### Spine
+
+```
 feature ospf
 feature bgp
 nv overlay evpn
+```
 
 ### Leaf
+
+```
 feature ospf
 feature bgp
 feature interface-vlan
 feature vn-segment-vlan-based
 feature nv overlay
 nv overlay evpn
+```
 
 ### Key reminders
 
@@ -809,3 +982,32 @@ nv overlay evpn
 - `feature nv overlay` is only on leaves. Spines don't encap/decap VXLAN.
 - `send-community extended` is non-optional in any EVPN address-family neighbor config. Forget it and route-targets don't propagate.
 
+---
+
+## Appendix: Quick troubleshooting flowchart
+
+When east-west ping fails, work this order — do not skip steps:
+
+1. **Underlay** — can leaf1 ping leaf2's loopback1?
+   - No → fix OSPF (Section 6).
+   - Yes → continue.
+
+2. **BGP-EVPN session** — `show bgp l2vpn evpn summary` — both spines Established?
+   - No → fix BGP (Section 7). Check `update-source loopback0`, AS number, `nv overlay evpn`.
+   - Yes → continue.
+
+3. **EVPN routes** — `show bgp l2vpn evpn` — Type-2 and Type-3 routes present?
+   - No → check `send-community extended`, EVPN AF config under neighbors.
+   - Yes → continue.
+
+4. **NVE peer** — `show nve peers` — remote leaf in list, state Up, learn type CP?
+   - No → check `host-reachability protocol bgp` and Type-3 routes.
+   - Yes → continue.
+
+5. **MAC table** — `show mac address-table dynamic vlan 10` — remote MAC present pointing to nve1?
+   - No → check VLAN-to-VNI mapping, `member vni X` on NVE, MAC-VRF EVPN config.
+   - Yes → continue.
+
+6. **VRF route** — on leaf2, `show ip route vrf tenant1 10.10.10.10` — BGP route via remote VTEP with `segid: 50001`?
+   - No → check L3VNI association (`member vni 50001 associate-vrf`), VRF EVPN RT config.
+   - Yes → ping should work. If not, check host network config.
